@@ -232,6 +232,7 @@ bool Display::startAuth(const QString &user, const QString &password, const Sess
     }
 
     m_passPhrase = password;
+    m_loginPasswordSent = false;
 
     // sanity check
     if (!session.isValid()) {
@@ -357,14 +358,45 @@ void Display::slotHelperFinished(Auth::HelperExitStatus status)
 
 void Display::slotRequestChanged()
 {
-    if (m_auth->request()->prompts().length() == 1) {
-        m_auth->request()->prompts()[0]->setResponse(qPrintable(m_passPhrase));
-        m_auth->request()->done();
-    } else if (m_auth->request()->prompts().length() == 2) {
-        m_auth->request()->prompts()[0]->setResponse(qPrintable(m_auth->user()));
-        m_auth->request()->prompts()[1]->setResponse(qPrintable(m_passPhrase));
-        m_auth->request()->done();
+    const QList<AuthPrompt *> prompts = m_auth->request()->prompts();
+    if (prompts.isEmpty()) {
+        return;
     }
+
+    if (prompts.length() == 1 && prompts.at(0)->type() == AuthPrompt::LOGIN_USER) {
+        prompts.at(0)->setResponse(qPrintable(m_auth->user()));
+        m_auth->request()->done();
+        return;
+    }
+
+    bool asksForLoginPassword = false;
+    for (AuthPrompt *prompt : prompts) {
+        if (prompt->type() == AuthPrompt::LOGIN_PASSWORD) {
+            asksForLoginPassword = true;
+            break;
+        }
+    }
+
+    if (asksForLoginPassword && !m_loginPasswordSent) {
+        for (AuthPrompt *prompt : prompts) {
+            if (prompt->type() == AuthPrompt::LOGIN_USER) {
+                prompt->setResponse(qPrintable(m_auth->user()));
+            } else if (prompt->type() == AuthPrompt::LOGIN_PASSWORD) {
+                prompt->setResponse(qPrintable(m_passPhrase));
+            }
+        }
+        m_loginPasswordSent = true;
+        m_auth->request()->done();
+        return;
+    }
+
+    // pam_systemd_home asks again when the password is rejected. Sending the
+    // same passphrase back makes it call AcquireHome up to five times. An empty
+    // response makes that retry loop stop.
+    for (AuthPrompt *prompt : prompts) {
+        prompt->setResponse(QByteArray());
+    }
+    m_auth->request()->done();
 }
 
 void Display::slotSessionStarted(bool success)

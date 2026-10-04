@@ -81,6 +81,9 @@ private:
     VirtualTerminal::Terminal m_sessionTerminalId;
 
     QString m_passPhrase;
+    // The greeter already collected one password. A later PAM question is a
+    // rejection ("Sorry, try again"), not a request to send that password again.
+    bool m_loginPasswordSent{false};
     QString m_sessionName;
     QString m_reuseSessionId;
 
